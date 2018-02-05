@@ -2,7 +2,9 @@
 #define CACHESIM_HPP
 
 #ifdef CCOMPILER
-#include <stdint.h>
+#include<stdint.h>
+#include<inttypes.h>
+#include<limits.h>
 #else
 #include <cstdint>
 #endif
@@ -33,10 +35,14 @@ struct config_t{
     uint64_t s;
 };
 
-void setup_cache(config_t config, unsigned char **data_store, uint64_t *tag_store, uint64_t *valid_bit, uint64_t *timer, uint64_t *dirty_bit);
+void setup_cache(config_t config, unsigned char ***data_store, uint64_t **tag_store, uint64_t **valid_bit, uint64_t **timer, uint64_t **dirty_bit);
 
 void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, config_t config, unsigned char **data_store, uint64_t *tag_store, uint64_t *valid_bit, uint64_t *timer, uint64_t time, uint64_t *dirty_bit); 
-void complete_cache(cache_stats_t *p_stats);
+void complete_cache(cache_stats_t *p_stats, config_t config, unsigned char ***data_store, uint64_t **tag_store, uint64_t **timer, uint64_t **valid_bit, uint64_t **dirty_bit);
+
+#define setbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] |= ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
+#define clearbit(arr, pos) ( arr[pos/(sizeof(uint64_t)*CHAR_BIT)] &= ~(1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT))) )
+#define testbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] & ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
 
 static const uint64_t DEFAULT_C1 = 12;   /* 4KB Cache */
 static const uint64_t DEFAULT_B1 = 5;    /* 32-byte blocks */

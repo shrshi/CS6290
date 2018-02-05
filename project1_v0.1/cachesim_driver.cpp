@@ -1,4 +1,3 @@
-
 #ifdef CCOMPILER
 #include <stdio.h>
 #include <inttypes.h>
@@ -60,15 +59,15 @@ int main(int argc, char* argv[]) {
 
     /* Setup the cache */
     config_t config;
-    config.c = c1; config.b = b; config.s = s;
+    config.c = c1; config.b = b1; config.s = s1;
     unsigned char **data_store;
     uint64_t *tag_store;
     uint64_t *valid_bit;
     uint64_t *timer;
     uint64_t *dirty_bit;
 
-    setup_cache(config, data_store, tag, valid_bit, timer, dirty_bit);
-
+    setup_cache(config, &data_store, &tag_store, &valid_bit, &timer, &dirty_bit);
+    
     /* Setup statistics */
     cache_stats_t stats;
     memset(&stats, 0, sizeof(cache_stats_t));
@@ -78,17 +77,19 @@ int main(int argc, char* argv[]) {
     uint64_t address;
     uint64_t time=0;
     while (!feof(stdin)) {
-        time++;
+        ++time;
         int ret = fscanf(stdin, "%c %" PRIx64 "\n", &rw, &address);
         if(ret == 2) {
             stats.accesses++;
-            if(strcmp(rw,READ)==0) stats.reads++;
+            if(rw==READ) stats.reads++;
             else stats.writes++; 
             cache_access(rw, address, &stats, config, data_store, tag_store, valid_bit, timer, time, dirty_bit);
         }
+        //if(time==2) break;
     }
 
-    complete_cache(&stats);
+    complete_cache(&stats, config, &data_store, &tag_store, &timer, &valid_bit, &dirty_bit);
+    //must free!
 
     print_statistics(&stats);
 
