@@ -14,29 +14,48 @@
  * @b1 The size of L1's blocks in bytes: 2^b-byte blocks.
  * @s1 The number of blocks in each set of L1: 2^s blocks per set.
  */
-void setup_cache(config_t config, unsigned char ***data_store_t, uint64_t **tag_store_t, uint64_t **valid_bit_t, uint64_t **timer_t, uint64_t **dirty_bit_t) {
-    uint64_t num_blocks = 1UL<<(config.c-config.b);
-    unsigned char **data_store; uint64_t *tag_store, *valid_bit, *timer, *dirty_bit;
+void setup_cache(cache *L1, cache *L2, uint64_t **prefetch_buffer_t, uint64_t **markov_tag_t, prediction ***markov_matrix_t) {
+    uint64_t num_blocks_L1 = 1UL<<(L1->config.c - L1->config.b);
+    uint64_t num_blocks_L2 = 1UL<<(L2->config.c - L2->config.b);
 
-    data_store = (unsigned char**)malloc(sizeof(unsigned char*)*num_blocks);
-    for(size_t i=0; i<num_blocks; i++)
-        data_store[i] = (unsigned char*)malloc(sizeof(unsigned char)*(1UL<<config.b)); 
+    L1->tag_store = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L1);
+    memset(L1->tag_store, 0, sizeof(uint64_t)*num_blocks_L1);
+    L2->tag_store = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L2);
+    memset(L2->tag_store, 0, sizeof(uint64_t)*num_blocks_L2);
 
-    tag_store = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks);
-    memset(tag_store, 0, sizeof(uint64_t)*num_blocks);
+    uint64_t bit_array_length_L1 = num_blocks_L1%(sizeof(uint64_t)*CHAR_BIT) == 0 ? num_blocks_L1/CHAR_BIT : sizeof(uint64_t);  
+    uint64_t bit_array_length_L2 = num_blocks_L2%(sizeof(uint64_t)*CHAR_BIT) == 0 ? num_blocks_L2/CHAR_BIT : sizeof(uint64_t);  
 
-    uint64_t bit_array_length = num_blocks%(sizeof(uint64_t)*CHAR_BIT) == 0 ? num_blocks/CHAR_BIT : sizeof(uint64_t);  
+    L1->valid_bit = (uint64_t*)malloc(bit_array_length_L1);
+    memset(L1->valid_bit, 0, bit_array_length_L1);
+    L2->valid_bit = (uint64_t*)malloc(bit_array_length_L2);
+    memset(L2->valid_bit, 0, bit_array_length_L2);
 
-    valid_bit = (uint64_t*)malloc(bit_array_length);
-    memset(valid_bit, 0, bit_array_length);
+    L1->timer = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L1);
+    memset(L1->timer, 0, sizeof(uint64_t)*num_blocks_L1);
+    L2->timer = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L2);
+    memset(L2->timer, 0, sizeof(uint64_t)*num_blocks_L2);
 
-    timer = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks);
-    memset(timer, 0, sizeof(uint64_t)*num_blocks);
-
-    dirty_bit = (uint64_t*)malloc(bit_array_length);
-    memset(dirty_bit, 0, bit_array_length);
-
-    *data_store_t = data_store; *tag_store_t = tag_store; *valid_bit_t = valid_bit; *timer_t = timer; *dirty_bit_t = dirty_bit;
+    L1->dirty_bit = (uint64_t*)malloc(bit_array_length_L1);
+    memset(L1->dirty_bit, 0, bit_array_length_L1);
+    L2->dirty_bit = (uint64_t*)malloc(bit_array_length_L2);
+    memset(L2->dirty_bit, 0, bit_array_length_L2);
+    
+    if(config.t!=0){
+        uint64_t *prefetch_buffer = (uint64_t*)malloc(sizeof(uint64_t)*PBUFFER_SIZE);
+        memset(prefetch_buffer, 0, sizeof(uint64_t)*PBUFFER_SIZE);
+        *prefetch_buffer_t = prefetch_buffer;
+        if(config.t==1){
+            uint64_t *markov_tag = (uint64_t*)malloc(sizeof(uint64_t)*config.p);
+            memset(markov_tag, 0, sizeof(uint64_t)*config.p);
+            *markov_tag_t = markov_tag;
+            prediction **markov_matrix = (prediction**)malloc(sizeof(prediction*)*config.p);
+            for(size_t i=0; i<config.p; i++)
+                markov_matrix[i] = (prediction*)malloc(sizeof(prediction)*MARKOV_PREFETCHER_COLS);
+            memset(markov_matrix, 0, sizeof(config.p*MARKOV_PREFETCHER_COLS*sizeof(prediction));
+            *markov_matrix_t = markov_matrix);
+        }
+    }
 }
 
 /**
@@ -47,15 +66,18 @@ void setup_cache(config_t config, unsigned char ***data_store_t, uint64_t **tag_
  * @arg  The target memory address
  * @p_stats Pointer to the statistics structure
  */
-void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, config_t config, unsigned char **data_store, uint64_t *tag_store, uint64_t *valid_bit, uint64_t *timer, uint64_t time, uint64_t *dirty_bit) {
+void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, cache *L2, uint64_t time, uint64_t *prefetch_buffer, uint64_t *markov_tag, prediction **markov_matrix) {
     uint64_t offset = arg & ((1UL<<config.b)-1);
     uint64_t index = (arg >> config.b) & ((1UL<<(config.c - config.b - config.s))-1);
     uint64_t tag = (arg >> (config.c-config.s));
 
-    uint64_t set = index*(1UL<< config.s);
-    
     uint64_t num_sets = 1UL<<(config.c-config.b-config.s);
+    uint64_t num_blocks = 1UL<<(config.c-config.b);
     uint64_t associativity = 1UL<<config.s;
+    
+    uint64_t block_start = index*(1UL<< config.s);
+    uint64_t block_end = block_start + (1<<config.s) - 1; 
+
     /* 
     printf("Type : %c\n", type); 
     printf("Tag : %" PRIu64 "\n", tag);
@@ -63,9 +85,19 @@ void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, config_t conf
     printf("Set : %" PRIu64 "\n", set);
     printf("Offset : %" PRIu64 "\n", offset);
     */
-    uint64_t block_start = set;
-    uint64_t block_end = set+(1<<config.s)-1;
+    
+    if(config.t==0)
+        no_prefetcher_cache_access(block_start, block_end, valid_bit, dirty_bit, timer, time, tag_store, p_stats);
+    else if(config.t==1)
+        markov_prefetcher_cache_access(block_start, block_end, valid_bit, dirty_bit, timer, time, tag_store, p_stats, prefetch_buffer, markov_tag, markov_matrix);
+    else if(config.t==2)
+    else
+}
 
+void markov_prefetcher_cache_access(uint64_t block_start, uint64_t block_end, uint64_t *valid_bit, uint64_t *dirty_bit, uint64_t *timer, uint64_t time, uint64_t *tag_store, cache_stats_t* p_stat, uint64_t *prefetch_buffer, uint64_t *markov_tag, prediction **markov_matrix) {
+
+
+void no_prefetcher_cache_access(uint64_t block_start, uint64_t block_end, uint64_t *valid_bit, uint64_t *dirty_bit, uint64_t *timer, uint64_t time, uint64_t *tag_store, cache_stats_t* p_stat) {
     int flag=0;
     if(type == READ){
         for(size_t i=block_start; i<=block_end; i++){

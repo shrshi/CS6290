@@ -5,7 +5,7 @@ CXX:=cc
 CXXFLAGS += -DCCOMPILER
 else
 CXX := g++
-CXXFLAGS += -std=c++0x
+CXXFLAGS += -std=c++11
 endif
 
 all: cachesim

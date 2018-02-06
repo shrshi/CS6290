@@ -20,6 +20,8 @@ void print_help_and_exit(void) {
     printf("  -c C1\t\tTotal size in bytes is 2^C1\n");
     printf("  -b B1\t\tSize of each block in bytes is 2^B1\n");
     printf("  -s S1\t\tNumber of blocks per set is 2^S1\n");
+    printf("  -t T1\t\tPrefetcher type. Valid values are 0-3\n");
+    printf("  -p P1\t\tMarkov table rows\n");
     exit(0);
 }
 
@@ -30,9 +32,11 @@ int main(int argc, char* argv[]) {
     uint64_t c1 = DEFAULT_C1;
     uint64_t b1 = DEFAULT_B1;
     uint64_t s1 = DEFAULT_S1;
+    uint64_t p1 = DEFAULT_P1;
+    uint64_t prefetcher_type = DEFAULT_T;
 
     /* Read arguments */
-    while(-1 != (opt = getopt(argc, argv, "c:b:s:v:C:B:S:h"))) {
+    while(-1 != (opt = getopt(argc, argv, "c:b:s:p:t:h"))) {
         switch(opt) {
         case 'c':
             c1 = atoi(optarg);
@@ -42,6 +46,12 @@ int main(int argc, char* argv[]) {
             break;
         case 's':
             s1 = atoi(optarg);
+            break;
+        case 'p':
+            p1 = atoi(optarg);
+            break;
+        case 't':
+            prefetcher_type = atoi(optarg);
             break;
         case 'h':
             /* Fall through */
@@ -55,18 +65,22 @@ int main(int argc, char* argv[]) {
     printf("c: %" PRIu64 "\n", c1);
     printf("b: %" PRIu64 "\n", b1);
     printf("s: %" PRIu64 "\n", s1);
+    printf("t: %" PRIu64 "\n", prefetcher_type);
+    printf("p: %" PRIu64 "\n", p1);
     printf("\n");
 
     /* Setup the cache */
-    config_t config;
-    config.c = c1; config.b = b1; config.s = s1;
-    unsigned char **data_store;
-    uint64_t *tag_store;
-    uint64_t *valid_bit;
-    uint64_t *timer;
-    uint64_t *dirty_bit;
 
-    setup_cache(config, &data_store, &tag_store, &valid_bit, &timer, &dirty_bit);
+    cache L1, L2;
+    L1.config.c = c1; L1.config.b = b1; L1.config.s = s1; L1.config.p = p1; L1.config.t = prefetcher_type;
+    L2.config.c = DEFAULT_C2; L2.config.b = DEFAULT_B2; L2.config.s = DEFAULT_S2; L2.config.p = 0; L2.config.t = 0;
+    
+    uint64_t *prefetch_buffer = NULL;
+    uint64_t *markov_tag = NULL;
+    prediction **markov_matrix = NULL;
+
+    //include p1 and prefetcher_type to setup_cache arguments
+    setup_cache(&L1, &L2, &prefetch_buffer, &markov_tag, &markov_matrix);
     
     /* Setup statistics */
     cache_stats_t stats;
@@ -83,13 +97,12 @@ int main(int argc, char* argv[]) {
             stats.accesses++;
             if(rw==READ) stats.reads++;
             else stats.writes++; 
-            cache_access(rw, address, &stats, config, data_store, tag_store, valid_bit, timer, time, dirty_bit);
+            cache_access(rw, address, &stats, &L1, &L2, time, prefetch_buffer, markov_tag, markov_matrix);
         }
         //if(time==2) break;
     }
 
     complete_cache(&stats, config, &data_store, &tag_store, &timer, &valid_bit, &dirty_bit);
-    //must free!
 
     print_statistics(&stats);
 
@@ -99,10 +112,10 @@ int main(int argc, char* argv[]) {
 void print_statistics(cache_stats_t* p_stats) {
     printf("Cache Statistics\n");
     printf("Accesses: %" PRIu64 "\n", p_stats->accesses);
-    printf("Total hits: %" PRIu64 "\n", p_stats->total_hits_l1);
-    printf("Total misses: %" PRIu64 "\n", p_stats->total_misses_l1);
-    printf("Hit ratio for L1: %.3f\n", p_stats->total_hit_ratio);
-    printf("Miss ratio for L1: %.3f\n", p_stats->total_miss_ratio);
+    printf("L1 hits: %" PRIu64 "\n", p_stats->total_hits_l1);
+    printf("L1 misses: %" PRIu64 "\n", p_stats->total_misses_l1);
+    printf("Hit ratio for L1: %.3f\n", p_stats->l1_hit_ratio);
+    printf("Miss ratio for L1: %.3f\n", p_stats->l1_miss_ratio);
     printf("Reads: %" PRIu64 "\n", p_stats->reads);
     printf("Read hits to L1: %" PRIu64 "\n", p_stats->read_hits_l1);
     printf("Read misses to L1: %" PRIu64 "\n", p_stats->read_misses_l1);
@@ -114,5 +127,11 @@ void print_statistics(cache_stats_t* p_stats) {
     printf("Write backs from L1: %" PRIu64 "\n", p_stats->write_back_l1);
     printf("Write hit ratio for L1: %.3f\n", p_stats->write_hit_ratio);
     printf("Write miss ratio for L1: %.3f\n", p_stats->write_miss_ratio);
-    printf("Average access time (AAT) for L1: %.3f\n", p_stats->avg_access_time_l1);
+    printf("Prefetcher Statistics\n");
+    printf("Prefetch issued: %" PRIu64 "\n", p_stats->prefetch_issued);
+    printf("Prefetch hits: %" PRIu64 "\n", p_stats->prefetch_hits);
+    printf("Prefetch hit ratio: %.3f\n", p_stats->prefetch_hit_ratio);
+    printf("Prefetch buffer misses: %" PRIu64 "\n", p_stats->prefetch_misses);
+    printf("Overall miss ratio for AAT calculation: %.3f\n", p_stats->overall_miss_ratio);
+    printf("Average access time (AAT): %.3f\n", p_stats->avg_access_time_l1);
 }
