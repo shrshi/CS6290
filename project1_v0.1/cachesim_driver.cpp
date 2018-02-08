@@ -78,11 +78,12 @@ int main(int argc, char* argv[]) {
     
     uint64_t *prefetch_buffer = NULL;
     uint64_t prefetch_buffer_size = 0;
+    uint64_t *prefetch_buffer_dirty_bit = NULL;
     uint64_t *markov_tag = NULL;
     prediction **markov_matrix = NULL;
 
     //include p1 and prefetcher_type to setup_cache arguments
-    setup_cache(&config, &L1, &L2, &prefetch_buffer, &markov_tag, &markov_matrix);
+    setup_cache(&config, &L1, &L2, &prefetch_buffer, &prefetch_buffer_dirty_bit, &markov_tag, &markov_matrix);
     
     /* Setup statistics */
     cache_stats_t stats;
