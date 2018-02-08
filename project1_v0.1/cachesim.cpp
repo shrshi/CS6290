@@ -14,7 +14,12 @@
  * @b1 The size of L1's blocks in bytes: 2^b-byte blocks.
  * @s1 The number of blocks in each set of L1: 2^s blocks per set.
  */
-void setup_cache(cache *L1, cache *L2, cache *victim, uint64_t **prefetch_buffer_t, uint64_t **markov_tag_t, prediction ***markov_matrix_t) {
+void setup_cache(cache **L1_t, cache **L2_t, uint64_t **prefetch_buffer_t, uint64_t **markov_tag_t, prediction ***markov_matrix_t) {
+    cache *L1 = (cache*)malloc(sizeof(cache));
+    cache *L2 = (cache*)malloc(sizeof(cache));
+
+    L1->config.c = c1; L1->config.b = b1; L1->config.s = s1; L1->config.p = p1; L1->config.t = prefetcher_type; L1->next = L2;
+    L2.config.c = DEFAULT_C2; L2.config.b = DEFAULT_B2; L2.config.s = DEFAULT_S2; L2.config.p = 0; L2.config.t = 0;
     uint64_t num_blocks_L1 = 1UL<<(L1->config.c - L1->config.b);
     uint64_t num_blocks_L2 = 1UL<<(L2->config.c - L2->config.b);
 
@@ -22,8 +27,6 @@ void setup_cache(cache *L1, cache *L2, cache *victim, uint64_t **prefetch_buffer
     memset(L1->tag_store, 0, sizeof(uint64_t)*num_blocks_L1);
     L2->tag_store = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L2);
     memset(L2->tag_store, 0, sizeof(uint64_t)*num_blocks_L2);
-    victim->tag_store = (uint64_t*)malloc(sizeof(uint64_t)*DEFAULT_V);
-    memset(victim->tag_store, 0, sizeof(uint64_t)*DEFAULT_V);
 
     uint64_t bit_array_length_L1 = num_blocks_L1%(sizeof(uint64_t)*CHAR_BIT) == 0 ? num_blocks_L1/CHAR_BIT : sizeof(uint64_t);  
     uint64_t bit_array_length_L2 = num_blocks_L2%(sizeof(uint64_t)*CHAR_BIT) == 0 ? num_blocks_L2/CHAR_BIT : sizeof(uint64_t);  
@@ -32,22 +35,16 @@ void setup_cache(cache *L1, cache *L2, cache *victim, uint64_t **prefetch_buffer
     memset(L1->valid_bit, 0, bit_array_length_L1);
     L2->valid_bit = (uint64_t*)malloc(bit_array_length_L2);
     memset(L2->valid_bit, 0, bit_array_length_L2);
-    victim->valid_bit = (uint64_t*)malloc(sizeof(uint64_t));
-    memset(victim->valid_bit, 0, sizeof(uint64_t));
 
     L1->timer = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L1);
     memset(L1->timer, 0, sizeof(uint64_t)*num_blocks_L1);
     L2->timer = (uint64_t*)malloc(sizeof(uint64_t)*num_blocks_L2);
     memset(L2->timer, 0, sizeof(uint64_t)*num_blocks_L2);
-    victim->timer = (uint64_t*)malloc(sizeof(uint64_t));
-    memset(victim->timer, 0, sizeof(uint64_t));
 
     L1->dirty_bit = (uint64_t*)malloc(bit_array_length_L1);
     memset(L1->dirty_bit, 0, bit_array_length_L1);
     L2->dirty_bit = (uint64_t*)malloc(bit_array_length_L2);
     memset(L2->dirty_bit, 0, bit_array_length_L2);
-    victim->dirty_bit = (uint64_t*)malloc(sizeof(uint64_t));
-    memset(victim->dirty_bit, 0, sizeof(uint64_t));
     
     if(L1->config.t!=0){
         uint64_t *prefetch_buffer = (uint64_t*)malloc(sizeof(uint64_t)*PBUFFER_SIZE);
@@ -74,24 +71,137 @@ void setup_cache(cache *L1, cache *L2, cache *victim, uint64_t **prefetch_buffer
  * @arg  The target memory address
  * @p_stats Pointer to the statistics structure
  */
-void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, cache *L2, cache *victim, uint64_t time, uint64_t *prefetch_buffer, uint64_t *markov_tag, prediction **markov_matrix) {
-    uint64_t offset_L1 = arg & ((1UL<<L1->config.b)-1);
-    uint64_t index_L1 = (arg >> L1->config.b) & ((1UL<<(L1->config.c - L1->config.b - L1->config.s))-1);
-    uint64_t tag_L1 = (arg >> (L1->config.c-L1->config.s));
+int isPresentiInCache(cache *c, char type, uint64_t arg, cache_stats_t *p_stats){
+    uint64_t index = getindex(arg, c->config);
+    uint64_t tag = gettag(arg, c->config);
 
-    uint64_t offset_L2 = arg & ((1UL<<L2->config.b)-1);
-    uint64_t index_L2= (arg >> L2->config.b) & ((1UL<<(L2->config.c - L2->config.b - L2->config.s))-1);
-    uint64_t tag_L2 = (arg >> (L2->config.c - L2->config.s));
+    uint64_t block_start = index * (1UL << c->config.s);
+    uint64_t block_end = block_start + (1UL << c->config.s) - 1;
 
+    int flag=0;
+    for(size_t i=block_start; i<=block_end; i++)
+        if(testbit(c->valid_bit, i) && c->tag_store[i]==tag){
+            flag=1;
+            c->timer[i] = time;
+            p_stats->total_hits_l1++;
+            if(type==READ) p_stats->read_hits_l1++;
+            else { p_stats->write_hits_l1++; setbit(c->dirty_bit, i); }
+            break;
+        }
+    return flag;
+}
+
+int addToCache(cache *c, char type, uint64_t arg, cache_stats_t *p_stats){
+    uint64_t index = getindex(arg, c->config);
+    uint64_t tag = gettag(arg, c->config);
+
+    uint64_t block_start = index * (1UL << c->config.s);
+    uint64_t block_end = block_start + (1UL << c->config.s) - 1;
+
+    int flag=0;
+    for(size_t j=block_start; j<=block_end; j++)
+        if(!testbit(c->valid_bit, j)){
+            c->tag_store[j] = tag;
+            setbit(c->valid_bit, j);
+            if(type==READ) clearbit(c->dirty_bit, j);
+            else setbit(c->dirty_bit, j);
+            c->timer[j] = time;
+            flag = 1; break;
+        }
+    return flag;
+}
+
+void addToFullCache(cache *c, char type, uint64_t arg, cache_stats_t *p_stats){
+    uint64_t index = getindex(arg, c->config);
+    uint64_t tag = gettag(arg, c->config);
+
+    uint64_t block_start = index * (1UL << c->config.s);
+    uint64_t block_end = block_start + (1UL << c->config.s) - 1;
+
+    uint64_t lru = UINT_MAX;
+    size_t replace_pos;
+    for(size_t j=block_start; j<=block_end; j++)
+        if(c->timer[j]<lru){
+            lru = c->timer[j];
+            replace_pos = j;
+        }
+    uint64_t replace_arg = (c->tag_store[replace_pos] << (c->config.c - c->config.s)) | (index << c->config.b);
+    if(!c->isLowermostLevel)
+        if(!addToCache(L2, type, replace_arg, p_stats))
+           addToFullCache(L2, type, replace_arg, p_stats); 
+
+
+    if(testbit(c->dirty_bit, replace_pos)){
+        if(c->isLowermostLevel)++p_stats->write_back_l2;
+        else{
+            if(!addToCache(L2, char type, 
+        }
+        //find lru in victim cache and replace or simply add
+    }
+    L1->tag_store[replace_pos] = tag_L1;
+    clearbit(L1->dirty_bit, replace_pos);
+    L1->timer[replace_pos] = time; 
+}
+
+int isPresentiInBuffer(uint64_t *prefetch_buffer, cache *c, char type, uint64_t arg, cache_stats_t *p_stats){
+    uint64_t index = getindex(arg, c->config);
+    uint64_t tag = gettag(arg, c->config);
+
+    uint64_t block_start = index * (1UL << c->config.s);
+    uint64_t block_end = block_start + (1UL << c->config.s) - 1;
+
+    int flag=0;
+    for(size_t i=0; i<PBUFFER_SIZE; i++)
+        if(arg==prefetch_buffer[i]){
+            flag=1;
+            p_stats->prefetch_hits++;
+            int isPosL1 = 0;
+            for(size_t j=block_start_L1; j<=block_end_L1; j++)
+                if(!testbit(L1->valid_bit, j)){
+                    L1->tag_store[j] = tag_L1;
+                    setbit(L1->valid_bit, j);
+                    if(type==READ) clearbit(L1->dirty_bit, j);
+                    else setbit(L1->dirty_bit, j);
+                    L1->timer[j] = time;
+                    isPosL1 = 1; break;
+                }
+            if(!isPosL1){
+                uint64_t lru = UINT_MAX;
+                size_t replace_pos;
+                for(size_t j=block_start_L1; j<=block_end_L1; j++)
+                    if(L1->timer[j]<lru){
+                        lru = L1->timer[j];
+                        replace_pos = j;
+                    }
+                if(testbit(L1->dirty_bit, replace_pos)){
+                    ++p_stats->write_back_l1;
+                    //find lru in victim cache and replace or simply add
+                }
+                L1->tag_store[replace_pos] = tag_L1;
+                clearbit(L1->dirty_bit, replace_pos);
+                L1->timer[replace_pos] = time; 
+            }
+            //remove from prefetch buffer
+            break;
+        }
+    for(size_t i=block_start; i<=block_end; i++)
+        if(testbit(c->valid_bit, i) && c->tag_store[i]==tag){
+            flag=1;
+            c->timer[i] = time;
+            p_stats->total_hits_l1++;
+            if(type==READ) p_stats->read_hits_l1++;
+            else { p_stats->write_hits_l1++; setbit(c->dirty_bit, i); }
+            break;
+        }
+    return flag;
+}
+
+void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, cache *L2, uint64_t time, uint64_t *prefetch_buffer, uint64_t *markov_tag, prediction **markov_matrix) {
     /*
     uint64_t num_sets = 1UL<<(config.c-config.b-config.s);
     uint64_t num_blocks = 1UL<<(config.c-config.b);
     uint64_t associativity = 1UL<<config.s;
     */
-
-    uint64_t block_start_L1 = index_L1*(1UL<< L1->config.s);
-    uint64_t block_end_L1 = block_start_L1 + (1<<L1->config.s) - 1; 
-
     /* 
     printf("Type : %c\n", type); 
     printf("Tag : %" PRIu64 "\n", tag);
@@ -101,17 +211,13 @@ void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, ca
     */
 
     //L1 cache check
-    int flag=0;
-    for(size_t i=block_start_L1; i<=block_end_L1; i++)
-        if(testbit(L1->valid_bit, i) && L1->tag_store[i]==tag_L1){
-            flag=1;
-            timer[i] = time;
-            p_stats->total_hits_l1++;
-            if(type==READ) p_stats->read_hits_l1++;
-            else { p_stats->write_hits_l1++; setbit(L1->dirty_bit, i); }
-            break;
+    if(!isPresentiInCache(L1, type, arg, p_stats){
+        //check prefetch buffer
+        if(L1->config.t==1){
+            if(!isPresentiInBuffer(prefetch_buffer, L1, type, arg, p_stats))
         }
-    
+    }
+
     //Prefetch buffer check
     if(!flag){
         if(config.t==1){

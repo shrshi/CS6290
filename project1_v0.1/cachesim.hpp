@@ -54,6 +54,7 @@ struct cache{
     uint64_t *valid_bit;
     uint64_t *dirty_bit;
     config_t config;
+    cache *next;
 };
 
 struct prediction{
@@ -69,6 +70,9 @@ void complete_cache(cache_stats_t *p_stats, config_t config, unsigned char ***da
 #define setbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] |= ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
 #define clearbit(arr, pos) ( arr[pos/(sizeof(uint64_t)*CHAR_BIT)] &= ~(1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT))) )
 #define testbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] & ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
+#define getoffset(arg, config) ( arg & ((1UL<<config.b)-1) )
+#define getindex(arg, config) ( (arg >> config.b) & ((1UL<<(config.c - config.b - config.s))-1) )
+#define gettag(arg, index) ( (arg >> (config.c-config.s)) )
 
 static const uint64_t DEFAULT_C1 = 12;   /* 4KB Cache */
 static const uint64_t DEFAULT_B1 = 5;    /* 32-byte blocks */

@@ -71,16 +71,15 @@ int main(int argc, char* argv[]) {
 
     /* Setup the cache */
 
-    cache L1, L2, victim;
-    L1.config.c = c1; L1.config.b = b1; L1.config.s = s1; L1.config.p = p1; L1.config.t = prefetcher_type;
-    L2.config.c = DEFAULT_C2; L2.config.b = DEFAULT_B2; L2.config.s = DEFAULT_S2; L2.config.p = 0; L2.config.t = 0;
+    cache *L1 = NULL;
+    cache *L2 = NULL;
     
     uint64_t *prefetch_buffer = NULL;
     uint64_t *markov_tag = NULL;
     prediction **markov_matrix = NULL;
 
     //include p1 and prefetcher_type to setup_cache arguments
-    setup_cache(&L1, &L2, &victim, &prefetch_buffer, &markov_tag, &markov_matrix);
+    setup_cache(&L1, &L2, &prefetch_buffer, &markov_tag, &markov_matrix);
     
     /* Setup statistics */
     cache_stats_t stats;
@@ -97,7 +96,7 @@ int main(int argc, char* argv[]) {
             stats.accesses++;
             if(rw==READ) stats.reads++;
             else stats.writes++; 
-            cache_access(rw, address, &stats, &L1, &L2, &victim, time, prefetch_buffer, markov_tag, markov_matrix);
+            cache_access(rw, address, &stats, &L1, &L2, time, prefetch_buffer, markov_tag, markov_matrix);
         }
         //if(time==2) break;
     }
