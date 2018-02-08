@@ -53,7 +53,7 @@ struct cache{
     uint64_t *timer;
     uint64_t *valid_bit;
     uint64_t *dirty_bit;
-    config_t config;
+    config_t *config;
     cache *next;
 };
 
