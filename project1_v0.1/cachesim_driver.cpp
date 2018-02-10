@@ -76,14 +76,10 @@ int main(int argc, char* argv[]) {
     config_t config;
     config.c = c1; config.b = b1; config.s = s1; config.t = prefetcher_type; config.p = p1;
     
-    uint64_t *prefetch_buffer = NULL;
-    uint64_t prefetch_buffer_size = 0;
-    uint64_t *prefetch_buffer_dirty_bit = NULL;
-    uint64_t *markov_tag = NULL;
-    prediction **markov_matrix = NULL;
-
+    prefetcher_t prefetcher;
+    markov markov_logic;
     //include p1 and prefetcher_type to setup_cache arguments
-    setup_cache(&config, &L1, &L2, &prefetch_buffer, &prefetch_buffer_dirty_bit, &markov_tag, &markov_matrix);
+    setup_cache(&config, &L1, &L2, &prefetcher, &markov_logic);
     
     /* Setup statistics */
     cache_stats_t stats;
@@ -100,7 +96,7 @@ int main(int argc, char* argv[]) {
             stats.accesses++;
             if(rw==READ) stats.reads++;
             else stats.writes++; 
-            cache_access(rw, address, &stats, &L1, time, prefetch_buffer, prefetch_buffer_size, markov_tag, markov_matrix);
+            cache_access(rw, address, &stats, &L1, time, &prefetcher, &markov_logic);
         }
         //if(time==2) break;
     }

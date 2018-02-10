@@ -57,10 +57,25 @@ struct cache{
     cache *next;
 };
 
+struct prefetcher_t{
+    uint64_t *prefetch_buffer;
+    uint64_t prefetch_buffer_size;
+    uint64_t *prefetch_buffer_dirty_bit;
+    uint64_t prev_miss;
+};
+
 struct prediction{
     uint64_t arg;
     uint64_t counter;
 };
+
+struct markov{
+    uint64_t *tag;
+    prediction **matrix;
+    uint64_t *timer;
+    int row_size;
+};
+
 
 void setup_cache(config_t config, unsigned char ***data_store, uint64_t **tag_store, uint64_t **valid_bit, uint64_t **timer, uint64_t **dirty_bit);
 

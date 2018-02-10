@@ -14,7 +14,7 @@
  * @b1 The size of L1's blocks in bytes: 2^b-byte blocks.
  * @s1 The number of blocks in each set of L1: 2^s blocks per set.
  */
-void setup_cache(config_t *config, cache **L1_t, cache **L2_t, uint64_t **prefetch_buffer_t, uint64_t **prefetch_buffer_dirty_bit_t, uint64_t **markov_tag_t, prediction ***markov_matrix_t) {
+void setup_cache(config_t *config, cache **L1_t, cache **L2_t, prefetcher_t *prefetcher, markov *markov_logic) {
     cache *L1 = (cache*)malloc(sizeof(cache));
     cache *L2 = (cache*)malloc(sizeof(cache));
 
@@ -52,19 +52,24 @@ void setup_cache(config_t *config, cache **L1_t, cache **L2_t, uint64_t **prefet
     if(L1->config->t!=0){
         uint64_t *prefetch_buffer = (uint64_t*)malloc(sizeof(uint64_t)*PBUFFER_SIZE);
         memset(prefetch_buffer, 0, sizeof(uint64_t)*PBUFFER_SIZE);
-        *prefetch_buffer_t = prefetch_buffer;
+        prefetcher->prefetch_buffer = prefetch_buffer;
         uint64_t *prefetch_buffer_dirty_bit = (uint64_t*)malloc(sizeof(uint64_t));
         memset(prefetch_buffer_dirty_bit, 0, sizeof(uint64_t));
-        *prefetch_buffer_dirty_bit_t = prefetch_buffer_dirty_bit;
+        prefetcher->prefetch_buffer_dirty_bit = prefetch_buffer_dirty_bit;
+        prefetcher->prefetch_buffer_size = 0;
+        prefetcher->prev_miss = -1;
         if(config->t==1){
-            uint64_t *markov_tag = (uint64_t*)malloc(sizeof(uint64_t)*config->p);
-            memset(markov_tag, 0, sizeof(uint64_t)*config->p);
-            *markov_tag_t = markov_tag;
-            prediction **markov_matrix = (prediction**)malloc(sizeof(prediction*)*config->p);
-            for(size_t i=0; i<config->p; i++)
+            uint64_t *markov_tag = (uint64_t*)malloc(sizeof(uint64_t)*L1->config->p);
+            memset(markov_tag, 0, sizeof(uint64_t)*L1->config->p);
+            markov_logic->tag = markov_tag;
+            prediction **markov_matrix = (prediction**)malloc(sizeof(prediction*)*L1->config->p);
+            for(size_t i=0; i<L1->config->p; i++)
                 markov_matrix[i] = (prediction*)malloc(sizeof(prediction)*MARKOV_PREFETCHER_COLS);
-            memset(markov_matrix, 0, sizeof(config->p*MARKOV_PREFETCHER_COLS*sizeof(prediction));
-            *markov_matrix_t = markov_matrix;
+            memset(markov_matrix, 0, L1->config->p*MARKOV_PREFETCHER_COLS*sizeof(prediction));
+            markov_logic->matrix = markov_matrix;
+            markov_logic->timer = (uint64_t*)malloc(L1->config->p*sizeof(uint64_t));
+            memset(markov_logic->timer, 0, sizeof(uint64_t)*L1->config->p);
+            markov_logic->row_size=0;
         }
     }
     *L1_t = L1; *L2_t = L2;
@@ -100,7 +105,7 @@ int isPresentInCache(int toAdd, cache *c, uint64_t time, char type, uint64_t arg
     return flag;
 }
 
-int addToCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
+int addToCache(int isDirty, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
     uint64_t index = getindex(arg, c->config);
     uint64_t tag = gettag(arg, c->config);
 
@@ -112,7 +117,7 @@ int addToCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *
         if(!testbit(c->valid_bit, j)){
             c->tag_store[j] = tag;
             setbit(c->valid_bit, j);
-            if(type==READ) clearbit(c->dirty_bit, j);
+            if(type==READ && !isDirty) clearbit(c->dirty_bit, j);
             else setbit(c->dirty_bit, j);
             c->timer[j] = time;
             flag = 1; break;
@@ -120,14 +125,14 @@ int addToCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *
     return flag;
 }
 
-void addToFullCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
+void addToFullCache(int isDirty, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
     uint64_t index = getindex(arg, c->config);
     uint64_t tag = gettag(arg, c->config);
 
     uint64_t block_start = index * (1UL << c->config->s);
     uint64_t block_end = block_start + (1UL << c->config->s) - 1;
 
-    int flag=0;
+    int flag=0, isDirty;
     uint64_t lru = UINT_MAX;
     size_t replace_pos;
     for(size_t j=block_start; j<=block_end; j++)
@@ -137,40 +142,60 @@ void addToFullCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stat
         }
     uint64_t replace_arg = (c->tag_store[replace_pos] << (c->config->c - c->config->s)) | (index << c->config->b);
     if(c->next!=NULL){
-        if(testbit(c->dirty_bit, replace_pos)) p_stats->write_back_l1++;    
-        if(!addToCache(c->next, time, type, replace_arg, p_stats))
-            addToFullCache(c->next, time, type, replace_arg, p_stats); 
+        if(testbit(c->dirty_bit, replace_pos)) {p_stats->write_back_l1++; isDirty=1;}   
+        else isDirty=0;
+        if(!addToCache(isDirty, c->next, time, type, replace_arg, p_stats))
+            addToFullCache(isDirty, c->next, time, type, replace_arg, p_stats); 
     }
-    if(c->next==NULL)
+    else{
+        p_stats->accesses_l2++;
         if(testbit(c->dirty_bit, replace_pos)) p_stats->write_back_l2++;    
-        
+    }
     c->tag_store[replace_pos] = tag;
     setbit(c->valid_bit, replace_pos);
-    if(type==READ) clearbit(c->dirty_bit, replace_pos);
+    if(type==READ && !isDirty) clearbit(c->dirty_bit, replace_pos);
     else setbit(c->dirty_bit, replace_pos);
     c->timer[replace_pos] = time; 
 }
 
-int isPresentiInBuffer(uint64_t *prefetch_buffer, uint64_t prefetch_buffer_size, int toAdd, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
-    uint64_t index = getindex(arg, c->config);
+int removeFromCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
     uint64_t tag = gettag(arg, c->config);
-
+    uint64_t index = getindex(arg, c->config);
     uint64_t block_start = index * (1UL << c->config->s);
     uint64_t block_end = block_start + (1UL << c->config->s) - 1;
 
-    uint64_t arg_t = arg >> c->config->b;
-    int flag=0;
-    for(size_t i=0; i<prefetch_buffer_size; i++)
-        if(arg_t==prefetch_buffer[i]){
+    int flag=0, isDirty=0;
+    for(size_t i=block_start; i<=block_end; i++)
+        if(testbit(c->valid_bit, i) && c->tag_store[i]==tag){
+            if(testbit(c->dirty_bit, i)) isDirty = 1;
+            clearbit(c->valid_bit, i);
+            clearbit(c->dirty_bit, i);
+            c->timer[i] = 0;
+            p_stats->accesses_l2++;
             flag=1;
-            if(toAdd){
+        }
+    if(!flag)
+        if(type==READ) p_stats->read_misses_l2++;
+        else p_stats->write_misses_l2++;
+    return isDirty;
+}
+
+int isPresentiInBuffer(prefetcher_t *prefetcher, int toRemove, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats){
+    uint64_t arg_t = arg >> c->config->b;
+    int flag=0, isDirty;
+    for(size_t i=0; i<prefetcher->prefetch_buffer_size; i++)
+        if(arg_t==prefetcher->prefetch_buffer[i]){
+            flag=1;
+            if(toRemove){
                 p_stats->prefetch_hits++;
-                if(!addToCache(c, time, type, arg, p_stats))
-                    addToFullCache(c, time, type, arg, p_stats);
+                if(testbit(prefetcher->prefetch_buffer_dirty_bit, i)) isDirty = 1;
+                else isDirty = 0;
+                if(!addToCache(isDirty, c, time, type, arg, p_stats))
+                    addToFullCache(isDirty, c, time, type, arg, p_stats);
                 //remove from prefetch buffer
-                for(size_t j=i+1; j<prefetch_buffer_size; j++)
-                    prefetch_buffer[j-1]=prefetch_buffer[j];
-                prefetch_buffer_size--;
+                for(size_t j=i+1; j<prefetcher->prefetch_buffer_size; j++)
+                    prefetcher->prefetch_buffer[j-1] = prefetcher->prefetch_buffer[j];
+                prefetcher->prefetch_buffer_size--;
             }
             break;
         }
@@ -178,55 +203,141 @@ int isPresentiInBuffer(uint64_t *prefetch_buffer, uint64_t prefetch_buffer_size,
     return flag;
 }
 
-void prefetch(uint64_t *prefetch_buffer, uint64_t prefetch_buffer_size, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t p_stats){
+void prefetch(prefetcher_t *prefetcher, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t p_stats){
+    int isDirty;
     p_stats->prefetch_issued++; 
-    if(prefetch_buffer_size==PBUFFER_SIZE){
-        buf_remove = prefetch_buffer[0] << c->config->b;
-        if(!addToCache(c->next, time, type, buf_remove, p_stats))
-            addToFullCache(c->next, time, type, buf_remove, p_stats);
+    if(prefetcher->prefetch_buffer_size==PBUFFER_SIZE){
+        buf_remove = prefetcher->prefetch_buffer[0] << c->config->b;
+        if(testbit(prefetcher->prefetch_buffer_dirty_bit, 0)) isDirty=1;
+        else isDirty=0;
+        if(!addToCache(isDirty, c->next, time, type, buf_remove, p_stats))
+            addToFullCache(isDirty, c->next, time, type, buf_remove, p_stats);
         for(size_t i=1; i<prefetch_buffer_size; i++)
             prefetch_buffer[i-1] = prefetch_buffer[i];
-        prefetch_buffer[prefetch_buffer_size - 1] = arg;
+        prefetcher->prefetch_buffer[prefetcher->prefetch_buffer_size - 1] = arg;
     }
     else{
-        prefetch_buffer[prefetch_buffer_size] = arg;
-        prefetch_buffer_size++;
+        prefetcher->prefetch_buffer[prefetcher->prefetch_buffer_size] = arg;
+        prefetcher->prefetch_buffer_size++;
     }
-    uint64_t tag = gettag(arg, c->next->config);
-    uint64_t index = getindex(arg, c->next->config);
-    uint64_t block_start = index * (1UL << c->next->config->s);
-    uint64_t block_end = block_start + (1UL << c->next->config->s) - 1;
-
-    for(size_t i=block_start; i<=block_end; i++)
-        if(testbit(c->next->valid_bit, i) && c->next->tag_store[i]==tag){
-            if(testbit(c->next->dirty_bit, i)) setbit(prefetch_buffer_dirty_bit, prefetch_buffer_size-1);
-            clearbit(c->next->valid_bit, i);
-            clearbit(c->next->dirty_bit, i);
-            c->next->timer[i] = 0;
-        }
+    int isDirty = removeFromCache(c->next, time, type, arg, p_stats);
+    if(isDirty) setbit(prefetcher->prefetch_buffer_dirty_bit, prefetcher->prefetch_buffer_size-1);
 }
-void markov_prefetcher(uint64_t *markov_tag, prediction **markov_matrix, uint64_t *prefetch_buffer, uint64_t prefetch_buffer_size, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t p_stats){
+
+int markov_prefetcher(markov *markov_logic, prefetcher_t *prefetcher, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t p_stats){
     uint64_t arg_t = arg >> c->config->b;
-    for(size_t i=0; i<c->config->p; i++)
-       if(arg_t==markov_tag[i]){
+    int ifPrefetched = 0;
+    for(size_t i=0; i<markov_logic->row_size; i++)
+       if(arg_t==markov_logic->tag[i]){
            prediction mfu; mfu.counter = -1; mfu.arg = 0;
            int pos;
            for(size_t j=0; j<MARKOV_PREFETCHER_COLS; j++)
-                if(markov_matrix[i][j].counter > mfu.counter){
-                    mfu = markov_matrix[i][j];
+                if(markov_logic->matrix[i][j].counter > mfu.counter){
+                    mfu = markov_logic->matrix[i][j];
                     pos = j;
                 }
-                else if((markov_matrix[i][j].counter == mfu.counter) && (markov_matrix[i][j].arg > mfu.arg)){
-                    mfu = markov[i][j];
+                else if((markov_logic->matrix[i][j].counter == mfu.counter) && (markov_logic->matrix[i][j].arg > mfu.arg)){
+                    mfu = markov_logic->matrix[i][j];
                     pos = j;
                 }
            arg_to_prefetch = mfu.arg<<(c->config->b);
-           if(!isPresentInCache(0, c, time, type, arg_to_prefetch, p_stats) && !isPresentInBuffer(prefetch_buffer, prefetch_buffer_size, 0, c, time, type, arg_to_prefetch, p_stats))
-               prefetch(prefetch_buffer, prefetch_buffer_size, c, time, type, arg_to_prefetch, p_stats);
+           if(arg_to_prefetch!=arg_t && !isPresentInCache(0, c, time, type, arg_to_prefetch, p_stats) && !isPresentInBuffer(prefetcher, 0, c, time, type, arg_to_prefetch, p_stats))
+               prefetch(prefetcher, c, time, type, arg_to_prefetch, p_stats);
+           ifPrefetched = 1;
        }           
+    int flag=0;
+    for(size_t i=0; i<markov_logic->row_size; i++)
+        if(prefetcher->prev_miss == markov_logic->tag[i]){
+            markov_logic->timer[i] = time;
+            for(size_t j=0; j<MARKOV_PREFETCHER_COLS; j++)
+                if(markov_logic->matrix[i][j].arg == arg_t){
+                   markov_logic->matrix[i][j].counter++;
+                   flag=1;
+                }
+            if(!flag){
+                for(size_t j=0; j<MARKOV_PREFETCHER_COLS; j++)
+                    if(markov_logic->matrix[i][j].counter==0){
+                        markov_logic->matrix[i][j].arg=arg_t; markov_logic->matrix[i][j].counter = 1;
+                        flag=1;
+                    }
+                if(!flag){
+                    prediction lfu; lfu.arg = -1; lfu.counter = UINT_MAX;
+                    int replace_pos;
+                    for(size_t j=0; j< MARKOV_PREFETCHER_COLS; j++)
+                        if(markov_logic->matrix[i][j].counter < lfu.counter){
+                            lfu = markov_logic->matrix[i][j];
+                            replace_pos = j;
+                        }
+                        else if((markov_logic->matrix[i][j].counter==lfu.counter) && (markov_logic->matrix[i][j]arg < lfu.arg)){
+                            lfu = markov_matrix[i][j];
+                            replace_pos = j;
+                        }
+                    lfu.arg=arg_t; lfu.counter=1;
+                    markov_logic->matrix[i][replace_pos] = lfu;
+                }
+            }
+            flag=1;
+        }
+    if(!flag){
+        int replace_pos;
+        if(markov_logic->row_size == c->config->p){
+            uint64_t lru = UINT_MAX; 
+            for(size_t i=0; i<c->config->p; i++)
+                if(markov_logic->timer[i]<lru){
+                    lru = markov_logic->timer[i];
+                    replace_pos = i;
+                }
+            markov_matrix->timer[replace_pos] = time;
+            markov_matrix->tag[replace_pos] = prefetcher->prev_miss;
+            memset(markov_logic->matrix[replace_pos], 0, MARKOV_PREFETCHER_COLS*sizeof(prediction));
+        }
+        else{
+            markov_matrix->timer[row_size] = time;
+            markov_matrix->tag[row_size] = prefetcher->prev_miss;
+            memset(markov_logic->matrix[row_size], 0, MARKOV_PREFETCHER_COLS*sizeof(prediction));
+            replace_pos = row_size;
+            markov_matrix->row_size++;
+        }
+        for(size_t i=0; i<MARKOV_PREFETCHER_COLS; i++)
+            if(markov_logic->matrix[replace_pos][i].counter==0){
+                markov_logic->matrix[replace_pos][i].arg = arg_t;
+                markov_logic->matrix[replace_pos][i].counter = 1;
+            }
+    }
+
+    int isDirty = removeFromCache(c->next, time, type, arg, p_stats);
+    if(!addToCache(isDirty, c, time, type, arg, p_stats))
+        addToFullCache(isDirty, c, time, type, arg, p_stats);
+    prefetcher->prev_miss = arg_t;
+    return ifPrefetched;
 }
 
-void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, uint64_t prefetch_buffer_size, uint64_t time, uint64_t *prefetch_buffer, uint64_t *markov_tag, prediction **markov_matrix) {
+void sequential_prefetcher(prefetcher_t *prefetcher, cache *c, uint64_t time, char type. uint64_t arg, cache_stats_t *p_stats){
+    uint64_t index = getindex(arg, c->config);
+    uint64_t tag = gettag(arg, c->config);
+    uint64_t arg_to_prefetch = (tag << (c->config->c - c->config->s)) | ((index+1) << c->config->b);
+    if(arg_to_prefetch!=arg_t && !isPresentInCache(0, c, time, type, arg_to_prefetch, p_stats) && !isPresentInBuffer(prefetcher, 0, c, time, type, arg_to_prefetch, p_stats))
+        prefetch(prefetcher, c, time, type, arg_to_prefetch, p_stats);
+
+    int isDirty = removeFromCache(c->next, time, type, arg, p_stats);
+    if(!addToCache(isDirty, c, time, type, arg, p_stats))
+        addToFullCache(isDirty, c, time, type, arg, p_stats);
+    prefetcher->prev_miss = arg_t;
+}   
+
+void hybrid_prefetcher(markov *markov_logic, prefetcher_t *prefetcher, cache *c, uint64_t time, char type. uint64_t arg, cache_stats_t *p_stats){
+    if(!markov_prefetcher(markov_logic, prefetcher, L1, time, type, arg, p_stats)){
+        uint64_t index = getindex(arg, c->config);
+        uint64_t tag = gettag(arg, c->config);
+        uint64_t arg_to_prefetch = (tag << (c->config->c - c->config->s)) | ((index+1) << c->config->b);
+
+        if(arg_to_prefetch!=arg_t && !isPresentInCache(0, c, time, type, arg_to_prefetch, p_stats) && !isPresentInBuffer(prefetcher, 0, c, time, type, arg_to_prefetch, p_stats))
+            prefetch(prefetcher, c, time, type, arg_to_prefetch, p_stats);
+    }
+}
+
+
+void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, uint64_t time, prefetcher_t *prefetcher, markov *markov_logic) {
     /*
     uint64_t num_sets = 1UL<<(config->c-config->b-config->s);
     uint64_t num_blocks = 1UL<<(config->c-config->b);
@@ -241,18 +352,21 @@ void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, ui
     */
 
     //L1 cache check
-    if(!isPresentiInCache(1, L1, time, type, arg, p_stats)
+    if(!isPresentiInCache(1, L1, time, type, arg, p_stats){
+        if(type==READ) p_stats->read_misses_l1;
+        else p_stats->write_misses_l1;
         //check buffer
-        if(!isPresentiInBuffer(prefetch_buffer, prefetch_buffer_size, 1, L1, time, type, arg, p_stats)){
+        if(!isPresentiInBuffer(prefetcher, 1, L1, time, type, arg, p_stats)){
             //Markov prefetcher
             if(L1->config->t==1)
-                markov_prefetcher(markov_tag_t, **markov_matrix, prefetch_buffer, prefetch_buffer_size, L1, time, type, arg, p_stats);
+                markov_prefetcher(markov_logic, prefetcher, L1, time, type, arg, p_stats);
             else if(L1->config->t==2)
-                sequential_prefetcher();
+                sequential_prefetcher(prefetcher, L1, time, type, arg, p_stats);
             else if (L1->config->t==3)
                 hybrid_prefetcher();
-            else
-            bringToCache();
+            else{
+                
+            }
         }
 }
 
