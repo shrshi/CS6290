@@ -1,7 +1,7 @@
 CXXFLAGS := -g -Wall -lm
 
 ifdef C
-CXX:=cc
+CXX:=cc -ggdb3
 CXXFLAGS += -DCCOMPILER
 else
 CXX := g++

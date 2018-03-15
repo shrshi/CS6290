@@ -75,12 +75,11 @@ int main(int argc, char* argv[]) {
     cache *L2 = NULL;
     config_t config;
     config.c = c1; config.b = b1; config.s = s1; config.t = prefetcher_type; config.p = p1;
-    
-    prefetcher_t prefetcher;
-    markov markov_logic;
-    //include p1 and prefetcher_type to setup_cache arguments
+
+    prefetcher_t *prefetcher = NULL;
+    markov *markov_logic = NULL;
     setup_cache(&config, &L1, &L2, &prefetcher, &markov_logic);
-    
+
     /* Setup statistics */
     cache_stats_t stats;
     memset(&stats, 0, sizeof(cache_stats_t));
@@ -96,12 +95,23 @@ int main(int argc, char* argv[]) {
             stats.accesses++;
             if(rw==READ) stats.reads++;
             else stats.writes++; 
-            cache_access(rw, address, &stats, &L1, time, &prefetcher, &markov_logic);
+            //printf("Time: %"PRIu64"\n", time-1);
+            cache_access(rw, address, &stats, L1, time, prefetcher, markov_logic);
         }
-        //if(time==2) break;
+        //printf("\n\n");
+        //if(time==10) break;
     }
-
-    complete_cache(&stats, config, &data_store, &tag_store, &timer, &valid_bit, &dirty_bit);
+    /*
+    printf("Markov predictor\n");
+    for(size_t i=0; i<markov_logic->row_size; i++){
+        printf("[%"PRIu64"]  |  ", markov_logic->tag[i]);
+        for(size_t j=0; j<MARKOV_PREFETCHER_COLS; j++)
+            printf("(%"PRIu64", %"PRIu64")  ", markov_logic->matrix[i][j].arg, markov_logic->matrix[i][j].counter);
+        printf("\n");
+    }
+    printf("\n\n Markov predictor has %d rows\n", markov_logic->row_size);
+    */
+    complete_cache(&stats, &L1, &L2, &prefetcher, &markov_logic);
 
     print_statistics(&stats);
 

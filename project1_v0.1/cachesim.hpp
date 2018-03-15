@@ -59,7 +59,7 @@ struct cache{
 
 struct prefetcher_t{
     uint64_t *prefetch_buffer;
-    uint64_t prefetch_buffer_size;
+    int prefetch_buffer_size;
     uint64_t *prefetch_buffer_dirty_bit;
     uint64_t prev_miss;
 };
@@ -77,17 +77,36 @@ struct markov{
 };
 
 
-void setup_cache(config_t config, unsigned char ***data_store, uint64_t **tag_store, uint64_t **valid_bit, uint64_t **timer, uint64_t **dirty_bit);
+void setup_cache(config_t *config, cache **L1_t, cache **L2_t, prefetcher_t **prefetcher, markov **markov_logic); 
 
-void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, config_t config, unsigned char **data_store, uint64_t *tag_store, uint64_t *valid_bit, uint64_t *timer, uint64_t time, uint64_t *dirty_bit); 
-void complete_cache(cache_stats_t *p_stats, config_t config, unsigned char ***data_store, uint64_t **tag_store, uint64_t **timer, uint64_t **valid_bit, uint64_t **dirty_bit);
+int isPresentInCache(int toAdd, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+int addToCache(int isDirty, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+void addToFullCache(int isDirty, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+int removeFromCache(cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+int isPresentInBuffer(prefetcher_t *prefetcher, int toRemove, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+void prefetch(prefetcher_t *prefetcher, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t p_stats);
+
+int markov_prefetcher(int fromHybrid, markov *markov_logic, prefetcher_t *prefetcher, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t p_stats);
+
+void sequential_prefetcher(prefetcher_t *prefetcher, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+void hybrid_prefetcher(markov *markov_logic, prefetcher_t *prefetcher, cache *c, uint64_t time, char type, uint64_t arg, cache_stats_t *p_stats);
+
+void cache_access(char type, uint64_t arg, cache_stats_t* p_stats, cache *L1, uint64_t time, prefetcher_t *prefetcher, markov *markov_logic); 
+
+void complete_cache(cache_stats_t *p_stats, cache **L1, cache **L2, prefetcher_t **prefetcher, markov **markov_logic);
 
 #define setbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] |= ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
 #define clearbit(arr, pos) ( arr[pos/(sizeof(uint64_t)*CHAR_BIT)] &= ~(1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT))) )
 #define testbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] & ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
-#define getoffset(arg, config) ( arg & ((1UL<<config.b)-1) )
-#define getindex(arg, config) ( (arg >> config.b) & ((1UL<<(config.c - config.b - config.s))-1) )
-#define gettag(arg, index) ( (arg >> (config.c-config.s)) )
+#define getoffset(arg, config) ( arg & ((1UL<<config->b)-1) )
+#define getindex(arg, config) ( (arg >> config->b) & ((1UL<<(config->c - config->b - config->s))-1) )
+#define gettag(arg, config) ( (arg >> (config->c-config->s)) )
 
 static const uint64_t DEFAULT_C1 = 12;   /* 4KB Cache */
 static const uint64_t DEFAULT_B1 = 5;    /* 32-byte blocks */
