@@ -26,16 +26,33 @@ typedef struct _proc_inst_t
     int32_t op_code;
     int32_t src_reg[2];
     int32_t dest_reg;
-    
-    // You may introduce other fields as needed
-    
+    uint64_t time;
+    uint64_t cycle;
+    sched_q_entry *sqe;
+    rob_entry *re;
+    int *scoreboarde;
 } proc_inst_t;
+
+typedef struct _inflight_q
+{
+    proc_inst_t *ifq;
+    uint64_t head;
+    uint64_t tail;
+} inflight_q;
+
+typedef struct _free_pregs
+{
+    uint64_t number;
+    struct _free_pregs *next;
+    struct _free_pregs *prev;
+} free_pregs;
 
 typedef struct _regs
 {
     uint64_t *ready_bit;
-    uint64_t *free_bit;
-    uint64_t free_index;
+    free_pregs *head;
+    free_pregs *tail;
+    uint64_t num_free_pregs;
 } regs;
 
 typedef struct _sched_q_entry
@@ -43,12 +60,16 @@ typedef struct _sched_q_entry
     int fu;
     uint64_t dest_preg;
     uint64_t src_preg[2];
+    proc_inst_t *instr;
+    struct _sched_q_entry *next;
+    struct _sched_q_entry *prev;    
 } sched_q_entry;
 
 typedef struct _sched_q
 {
-    sched_q_entry *table;
-    sched_q_entry *ptr;
+    sched_q_entry *head;
+    sched_q_entry *tail;
+    uint64_t num_entries;
 } sched_q;
 
 typedef struct _rob_entry
@@ -56,12 +77,13 @@ typedef struct _rob_entry
     int32_t dest_areg;
     uint64_t prev_preg;
     uint64_t pc_resume;
+    proc_inst_t *instr;
 } rob_entry;
 
 typedef struct _rob_queue
 {
-    rob_entry *head;
-    rob_entry *tail;
+    uint64_t head;
+    uint64_t tail;
     uint64_t *ready_bit;
     uint64_t *exception_bit;
     rob_entry *rob;
@@ -73,14 +95,14 @@ typedef struct _proc_stats_t
     float avg_inst_fired;
     unsigned long retired_instruction;
     unsigned long cycle_count;
-    
 } proc_stats_t;
 
+extern inflight_q *inflight_queue;
 extern regs *registers;
 extern uint64_t *rat;
 extern sched_q *schedule_queue;  
 extern rob_queue *r_queue;
-extern uint64_t *scoreboard;
+extern proc_inst_t **scoreboard;
 
 #define setbit(arr, pos) (arr[pos/(sizeof(uint64_t)*CHAR_BIT)] |= ( 1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT)) ))
 #define clearbit(arr, pos) ( arr[pos/(sizeof(uint64_t)*CHAR_BIT)] &= ~(1UL<<(pos%(sizeof(uint64_t)*CHAR_BIT))) )
