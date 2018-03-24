@@ -36,6 +36,7 @@ typedef struct _rob_entry
 {
     int32_t dest_areg;
     uint64_t prev_preg; //for preg freeing
+    uint64_t curr_preg;
     uint64_t pc_resume;
     struct _proc_inst_t *instr;
 } rob_entry;
@@ -127,7 +128,7 @@ bool isFull(uint64_t head, uint64_t tail, uint64_t len);
 void circular_enqueue(uint64_t *head, uint64_t *tail, uint64_t len);
 void circular_dequeue(uint64_t *head, uint64_t *tail, uint64_t len);
 void dispatch(proc_inst_t *instance);
-void fire(uint64_t cycle);
+void fire(uint64_t cycle, proc_stats_t *p_stats);
 void complete(uint64_t cycle);
-void retire(uint64_t cycle);
+void retire(uint64_t cycle, proc_stats_t *p_stats);
 #endif /* PROCSIM_H */

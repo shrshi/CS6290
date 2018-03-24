@@ -102,7 +102,7 @@ int main(int argc, char* argv[]) {
     printf("k2: %" PRIu64 "\n", k2);
     printf("F: %"  PRIu64 "\n", f);
     printf("ROB: %" PRIu64 "\n", rob);
-    printf("PREGs: %"  PRIu64 "\n", preg);
+    printf("PREG: %"  PRIu64 "\n", preg);
     printf("\n");
 
     /* Setup the processor */
