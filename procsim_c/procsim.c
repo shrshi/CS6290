@@ -249,7 +249,7 @@ void fire(uint64_t cycle, proc_stats_t *p_stats)
             int offset = (t->fu==2 ? (proc_settings.k0+proc_settings.k1) : (t->fu==1 ? proc_settings.k0 : 0));
             for(int i=offset; i<(t->fu==2 ? (proc_settings.k0+proc_settings.k1+proc_settings.k2) : (t->fu==1 ? (proc_settings.k0+proc_settings.k1) : proc_settings.k0)); i++)
                 if(scoreboard[i]==NULL){
-                    printf("SCHED Inst Num: %"PRIu64"\n", t->instr->number);
+                    //printf("SCHED Inst Num: %"PRIu64"\n", t->instr->number);
                     p_stats->avg_inst_fired++;
                     scoreboard[i] = t->instr;
                     t->instr->scoreboarde = i;
@@ -269,7 +269,7 @@ void complete(uint64_t cycle)
             proc_inst_t *instr = scoreboard[i];
             for(size_t i=r_queue->head; ;){
                 if(instr==r_queue->rob[i].instr){
-                    printf("EX : Type: %d Inst_num: %"PRIu64"\n", instr->op_code, instr->number);
+                    //printf("EX : Type: %d Inst_num: %"PRIu64"\n", instr->op_code, instr->number);
                     setbit(r_queue->ready_bit, i);
                     break;
                 }
@@ -307,7 +307,7 @@ void complete(uint64_t cycle)
 void retire(uint64_t cycle, proc_stats_t *p_stats){
     int flag = 0;
     while(r_queue->head!=UINT_MAX && testbit(r_queue->ready_bit, r_queue->head)){
-        printf("RU Inst: %"PRIu64"\n", r_queue->rob[r_queue->head].instr->number);
+        //printf("RU Inst: %"PRIu64"\n", r_queue->rob[r_queue->head].instr->number);
         p_stats->avg_inst_retired++;
         r_queue->rob[r_queue->head].instr->retire_cycle = cycle;
         if(r_queue->rob[r_queue->head].curr_preg!=UINT_MAX) setbit(registers->ready_bit, r_queue->rob[r_queue->head].curr_preg);
@@ -365,7 +365,7 @@ void run_proc(proc_stats_t* p_stats)
     int flag=0;
     while((inflight_queue->head!=UINT_MAX && inflight_queue->tail!=UINT_MAX) || cycle==1){
         if(flag && inflight_queue->head==inflight_queue->tail) break;
-        printf("------------------------------------------  Cycle %"PRIu64" 		 ---------------------------------\n", cycle);
+        //printf("------------------------------------------  Cycle %"PRIu64" 		 ---------------------------------\n", cycle);
         retire(cycle, p_stats);
         complete(cycle);
         fire(cycle, p_stats);
@@ -390,10 +390,10 @@ void run_proc(proc_stats_t* p_stats)
                     for(int i=0; i<2; i++)
                         if(inflight_queue->ifq[inflight_queue->tail].src_reg[i]==-1) inflight_queue->ifq[inflight_queue->tail].src_reg[i] = INT_MAX;
                     dispatch(&(inflight_queue->ifq[inflight_queue->tail]));
-                    printf("DU: Inst Num %"PRIu64"\n", inflight_queue->ifq[inflight_queue->tail].number);
+                    //printf("DU: Inst Num %"PRIu64"\n", inflight_queue->ifq[inflight_queue->tail].number);
                 }
                 else{
-                    printf("Couldn't read from file\n");
+                    //printf("Couldn't read from file\n");
                     flag=1;
                 }
             }
@@ -405,7 +405,7 @@ void run_proc(proc_stats_t* p_stats)
         //print_rob_queue();
         //if(cycle==20) exit(0);
         cycle++;
-        printf("---------------------------------------------------------------------------------------------------\n\n");
+        //printf("---------------------------------------------------------------------------------------------------\n\n");
     }
     cycle--;
     p_stats->avg_inst_fired/=cycle;
