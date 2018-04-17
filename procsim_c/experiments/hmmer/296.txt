@@ -1,0 +1,14 @@
+./procsim -r8 -f2 -j1 -k1 -l2 -p32 < traces/hmmer.100k.trace 
+Processor Settings
+k0: 1
+k1: 1
+k2: 2
+F: 2
+ROB: 8
+PREG: 32
+
+Processor stats:
+Total instructions: 203
+Avg inst fired per cycle: 1.237805
+Avg inst retired per cycle: 1.237805
+Total run time (cycles): 164

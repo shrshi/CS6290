@@ -371,7 +371,7 @@ void run_proc(proc_stats_t* p_stats)
         fire(cycle, p_stats);
         for(int i=0; i<proc_settings.f && !flag; i++){
             //printf("Number of free pregs : %d, %d\n", registers->num_free_pregs, schedule_queue->num_entries);
-            if(schedule_queue->num_entries < proc_settings.rob && !isFull(r_queue->head, r_queue->tail, proc_settings.rob) && registers->num_free_pregs > 0){
+            if(schedule_queue->num_entries < 2*(proc_settings.k0 + proc_settings.k1 + proc_settings.k2) && !isFull(r_queue->head, r_queue->tail, proc_settings.rob) && registers->num_free_pregs > 0){
                 circular_enqueue(&inflight_queue->head, &inflight_queue->tail, proc_settings.rob);
                 if(read_instruction(&(inflight_queue->ifq[inflight_queue->tail]))) {
                     p_stats->retired_instruction++;

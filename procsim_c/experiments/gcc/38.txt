@@ -1,0 +1,14 @@
+./procsim -r14 -f3 -j2 -k3 -l2 -p32 < traces/gcc.100k.trace 
+Processor Settings
+k0: 2
+k1: 3
+k2: 2
+F: 3
+ROB: 14
+PREG: 32
+
+Processor stats:
+Total instructions: 42640
+Avg inst fired per cycle: 1.408051
+Avg inst retired per cycle: 1.408051
+Total run time (cycles): 30283

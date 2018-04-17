@@ -1,0 +1,14 @@
+./procsim -r6 -f1 -j1 -k1 -l1 -p32 < traces/mcf.100k.trace 
+Processor Settings
+k0: 1
+k1: 1
+k2: 1
+F: 1
+ROB: 6
+PREG: 32
+
+Processor stats:
+Total instructions: 16
+Avg inst fired per cycle: 0.842105
+Avg inst retired per cycle: 0.842105
+Total run time (cycles): 19
