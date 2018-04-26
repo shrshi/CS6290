@@ -12,7 +12,12 @@ typedef enum {
     MOSI_CACHE_I = 1,
     MOSI_CACHE_S,
     MOSI_CACHE_O,
-    MOSI_CACHE_M
+    MOSI_CACHE_M,
+    MOSI_CACHE_IS,
+    MOSI_CACHE_IM,
+    MOSI_CACHE_SM,
+    MOSI_CACHE_OM,
+    MOSI_CACHE_OML
 } MOSI_cache_state_t;
 
 class MOSI_protocol : public Protocol {
@@ -27,14 +32,24 @@ public:
     void dump (void);
 
     inline void do_cache_I (Mreq *request);
-    inline void do_cache_S (Mreq * request);
-    inline void do_cache_O (Mreq * request);
+    inline void do_cache_S (Mreq *request);
+    inline void do_cache_O (Mreq *request);
     inline void do_cache_M (Mreq *request);
+    inline void do_cache_IM (Mreq *request);
+    inline void do_cache_IS (Mreq *request);
+    inline void do_cache_SM (Mreq *request);
+    inline void do_cache_OML (Mreq *request);
+    inline void do_cache_OM (Mreq *request);
 
     inline void do_snoop_I (Mreq *request);
     inline void do_snoop_S (Mreq *request);
     inline void do_snoop_O (Mreq *request);
     inline void do_snoop_M (Mreq *request);
+    inline void do_snoop_IM (Mreq *request);
+    inline void do_snoop_IS (Mreq *request);
+    inline void do_snoop_SM (Mreq *request);
+    inline void do_snoop_OML (Mreq *request);
+    inline void do_snoop_OM (Mreq *request);
 };
 
 #endif // _MOSI_CACHE_H

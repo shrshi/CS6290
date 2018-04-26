@@ -15,6 +15,13 @@ typedef enum {
     MOESIF_CACHE_O,
     MOESIF_CACHE_M,
     MOESIF_CACHE_F,
+    MOESIF_CACHE_IS,
+    MOESIF_CACHE_IM,
+    MOESIF_CACHE_SM,
+    MOESIF_CACHE_FM,
+    MOESIF_CACHE_FML,
+    MOESIF_CACHE_OM,
+    MOESIF_CACHE_OML
 } MOESIF_cache_state_t;
 
 class MOESIF_protocol : public Protocol {
@@ -34,6 +41,13 @@ public:
     inline void do_cache_E (Mreq *request);
     inline void do_cache_O (Mreq *request);
     inline void do_cache_M (Mreq *request);
+    inline void do_cache_IM (Mreq *request);
+    inline void do_cache_IS (Mreq *request);
+    inline void do_cache_SM (Mreq *request);
+    inline void do_cache_FM (Mreq *request);
+    inline void do_cache_FML (Mreq *request);
+    inline void do_cache_OML (Mreq *request);
+    inline void do_cache_OM (Mreq *request);
 
     inline void do_snoop_F (Mreq *request);
     inline void do_snoop_I (Mreq *request);
@@ -41,6 +55,13 @@ public:
     inline void do_snoop_E (Mreq *request);
     inline void do_snoop_O (Mreq *request);
     inline void do_snoop_M (Mreq *request);
+    inline void do_snoop_IM (Mreq *request);
+    inline void do_snoop_IS (Mreq *request);
+    inline void do_snoop_SM (Mreq *request);
+    inline void do_snoop_FM (Mreq *request);
+    inline void do_snoop_FML (Mreq *request);
+    inline void do_snoop_OML (Mreq *request);
+    inline void do_snoop_OM (Mreq *request);
 };
 
 #endif // _MOESIF_CACHE_H

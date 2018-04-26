@@ -44,6 +44,7 @@ public:
      */
     void send_GETM(paddr_t addr);
     void send_GETS(paddr_t addr);
+    void send_DATA_on_bus(paddr_t addr, ModuleID dest, int state);
     void send_DATA_on_bus(paddr_t addr, ModuleID dest);
     void send_DATA_to_proc(paddr_t addr);
     /** These helper functions are for setting and getting the bus' shared line */
